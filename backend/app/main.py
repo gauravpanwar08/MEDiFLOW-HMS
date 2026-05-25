@@ -1,69 +1,85 @@
-from fastapi import FastAPI, Request, status
+"""
+MediCore HMS — FastAPI application entry point.
+"""
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from sqlalchemy import select
 
 from app.core.config import settings
-from app.core.exceptions import AppException
-from app.core.logging import logger
+from app.db.session import init_db, AsyncSessionLocal
+from app.api.v1.router import api_router
+import structlog
 
-# Import all routers
-from app.domains.appointments.router import router as appointments_router
-from app.domains.queues.router import router as queues_router
-from app.domains.attendance.router import router as attendance_router
-from app.domains.auth.router import router as auth_router
+logger = structlog.get_logger()
 
-def create_app() -> FastAPI:
-    app = FastAPI(
-        title=settings.PROJECT_NAME,
-        version=settings.VERSION,
-        description="Production-ready Hospital Management System",
-    )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Starting MediCore HMS", version=settings.APP_VERSION)
+    await init_db()
+    await seed_default_hospital()
+    yield
+    # Shutdown
+    logger.info("Shutting down")
 
-    # --- GLOBAL EXCEPTION HANDLERS ---
-    
-    @app.exception_handler(AppException)
-    async def app_exception_handler(request: Request, exc: AppException):
-        """Handles our custom business logic exceptions"""
-        logger.error(f"AppException: {exc.message}")
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"success": False, "message": exc.message, "data": None},
-        )
 
-    @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-        """Overrides default FastAPI HTTP exceptions (e.g., 404 Not Found)"""
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"success": False, "message": str(exc.detail), "data": None},
-        )
+async def seed_default_hospital():
+    """Create default hospital if none exists."""
+    from app.models.models import Hospital
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Hospital).where(Hospital.slug == settings.DEFAULT_HOSPITAL_SLUG))
+        if not result.scalar_one_or_none():
+            hospital = Hospital(
+                name="City General Hospital",
+                slug=settings.DEFAULT_HOSPITAL_SLUG,
+                address="123 Medical Centre Road",
+                phone="+91 22 1234 5678",
+                email="admin@citygeneral.hospital",
+                is_active=True,
+                subscription_plan="enterprise",
+            )
+            db.add(hospital)
+            await db.commit()
+            logger.info("Default hospital created", slug=settings.DEFAULT_HOSPITAL_SLUG)
 
-    @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        """Overrides Pydantic validation errors (e.g., missing fields)"""
-        # Format the ugly pydantic error into a readable string
-        errors = [f"{err['loc'][-1]}: {err['msg']}" for err in exc.errors()]
-        return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={"success": False, "message": "Validation Error", "data": errors},
-        )
 
-    # --- ROUTER REGISTRATION ---
-    app.include_router(auth_router, prefix=settings.API_V1_STR)
-    app.include_router(appointments_router, prefix=settings.API_V1_STR)
-    app.include_router(queues_router, prefix=settings.API_V1_STR)
-    app.include_router(attendance_router, prefix=settings.API_V1_STR)
+app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    description="AI-powered Hospital Management System",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
+)
 
-    return app
+# Middleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-app = create_app()
+# Routers
+app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+
+
+@app.get("/health", tags=["Health"])
+async def health():
+    return {"status": "ok", "version": settings.APP_VERSION}
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(PermissionError)
+async def permission_error_handler(request: Request, exc: PermissionError):
+    return JSONResponse(status_code=403, content={"detail": str(exc)})

@@ -4,13 +4,12 @@ services:
   # ─── PostgreSQL ────────────────────────────────────────────
   db:
     image: postgres:16-alpine
-    container_name: hms_postgres
     environment:
       POSTGRES_USER: hms_user
       POSTGRES_PASSWORD: hms_pass
       POSTGRES_DB: hms_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,10 +21,9 @@ services:
   # ─── Redis ────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: hms_redis
     command: redis-server --appendonly yes
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -39,7 +37,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: hms_backend
     environment:
       DATABASE_URL: postgresql+asyncpg://hms_user:hms_pass@db:5432/hms_db
       DATABASE_SYNC_URL: postgresql+psycopg2://hms_user:hms_pass@db:5432/hms_db
@@ -50,7 +47,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       DEBUG: ${DEBUG:-false}
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - ./backend:/app
       - uploads_data:/app/uploads
@@ -70,7 +67,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: hms_celery
     environment:
       DATABASE_URL: postgresql+asyncpg://hms_user:hms_pass@db:5432/hms_db
       DATABASE_SYNC_URL: postgresql+psycopg2://hms_user:hms_pass@db:5432/hms_db
@@ -93,7 +89,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: hms_celery_beat
     environment:
       DATABASE_URL: postgresql+asyncpg://hms_user:hms_pass@db:5432/hms_db
       REDIS_URL: redis://redis:6379/0
@@ -110,11 +105,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: hms_flower
     environment:
       CELERY_BROKER_URL: redis://redis:6379/1
     ports:
-      - "5555:5555"
+      - "5556:5555"
     depends_on:
       - redis
     command: celery -A app.tasks.tasks.celery_app flower --port=5555
@@ -124,11 +118,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: hms_frontend
     ports:
-      - "5173:5173"
+      - "5174:5173"
     environment:
-      VITE_API_URL: http://localhost:8000/api/v1
+      VITE_API_URL: http://localhost:8001/api/v1
     depends_on:
       - backend
 

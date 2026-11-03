@@ -3,7 +3,7 @@ import uuid
 import aiofiles
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
@@ -34,19 +34,52 @@ async def get_patient_or_403(db, patient_id, current_user):
     return p
 
 
+@router.get("", response_model=PaginatedResponse)
+async def list_all_records(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    patient_id: Optional[int] = None,
+    record_type: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(MedicalRecord).where(MedicalRecord.hospital_id == current_user.hospital_id)
+    if current_user.role.value == "patient":
+        pat = (await db.execute(select(Patient).where(Patient.user_id == current_user.id))).scalar_one_or_none()
+        if not pat:
+            return PaginatedResponse(items=[], total=0, page=page, page_size=page_size, pages=1)
+        query = query.where(MedicalRecord.patient_id == pat.id, MedicalRecord.is_confidential == False)
+    else:
+        if patient_id:
+            query = query.where(MedicalRecord.patient_id == patient_id)
+    if record_type:
+        query = query.where(MedicalRecord.record_type == record_type)
+
+    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar_one()
+    query = query.order_by(MedicalRecord.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    records = (await db.execute(query)).scalars().all()
+    return PaginatedResponse(
+        items=[MedicalRecordOut.model_validate(r).model_dump() for r in records],
+        total=total, page=page, page_size=page_size,
+        pages=max(1, (total + page_size - 1) // page_size),
+    )
+
+
 @router.post("/patients/{patient_id}/upload", response_model=MedicalRecordOut, status_code=201)
 async def upload_record(
     patient_id: int,
     file: UploadFile = File(...),
-    title: Optional[str] = Query(None),
-    description: Optional[str] = Query(None),
-    record_type: str = Query("report"),
-    appointment_id: Optional[int] = Query(None),
-    is_confidential: bool = Query(False),
-    current_user: User = Depends(require_doctor),
+    title: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    record_type: str = Form("report"),
+    appointment_id: Optional[int] = Form(None),
+    is_confidential: bool = Form(False),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await get_patient_or_403(db, patient_id, current_user)
+    p = await get_patient_or_403(db, patient_id, current_user)
+    if current_user.role.value not in ("admin", "super_admin", "doctor") and p.user_id != current_user.id:
+        raise HTTPException(403, "Access denied")
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(415, f"Unsupported type: {file.content_type}")
     content = await file.read()

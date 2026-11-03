@@ -28,7 +28,6 @@ async def list_appointments(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.schemas.schemas import PaginationParams
     # Patients see only their own; doctors see theirs; admins see all
     my_patient_id = None
     my_doctor_id = None
@@ -43,11 +42,11 @@ async def list_appointments(
         if doc_obj:
             my_doctor_id = doc_obj.id
 
-    params = PaginationParams(page=page, page_size=page_size)
     appts, total = await AppointmentService.list_appointments(
         db=db,
         hospital_id=current_user.hospital_id,
-        params=params,
+        page=page,
+        page_size=page_size,
         doctor_id=my_doctor_id or doctor_id,
         patient_id=my_patient_id or patient_id,
         status=AppointmentStatus(status) if status else None,
@@ -74,14 +73,28 @@ async def book_appointment(
         pat = await db.execute(select(Patient).where(Patient.user_id == current_user.id))
         pat_obj = pat.scalar_one_or_none()
         if not pat_obj:
-            raise HTTPException(400, "Complete your patient profile before booking")
+            pat_obj = Patient(hospital_id=current_user.hospital_id, user_id=current_user.id)
+            db.add(pat_obj)
+            await db.flush()
+            await db.refresh(pat_obj)
         patient_id = pat_obj.id
-    elif hasattr(data, 'patient_id') and data.patient_id:
+    elif data.patient_id:
         patient_id = data.patient_id
     else:
-        raise HTTPException(400, "patient_id is required for non-patient users")
+        # Fallback: check if any patient exists in this hospital
+        first_pat = (await db.execute(
+            select(Patient).where(Patient.hospital_id == current_user.hospital_id)
+        )).scalars().first()
+        if first_pat:
+            patient_id = first_pat.id
+        else:
+            raise HTTPException(400, "patient_id is required for non-patient users (no patients found in hospital)")
 
-    appt = await AppointmentService.create(db, current_user.hospital_id, patient_id, data)
+    try:
+        appt = await AppointmentService.create(db, current_user.hospital_id, patient_id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     await AuditService.log(db, AuditAction.create, "appointment", appt.id,
                            user_id=current_user.id, hospital_id=current_user.hospital_id,
                            new_values={"doctor_id": data.doctor_id, "date": str(data.appointment_date)},

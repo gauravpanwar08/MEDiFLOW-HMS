@@ -4,10 +4,10 @@ import { Activity, User, Mail, Lock, Phone, Eye, EyeOff, Building2, ChevronDown,
 import { authApi } from '../services/api'
 import toast from 'react-hot-toast'
 
-const ROLES = [
-  { value:'patient', label:'Patient',       icon:'🧑‍⚕️', desc:'Book appointments & view records'    },
-  { value:'doctor',  label:'Doctor',         icon:'👨‍⚕️', desc:'Manage patients & consultations'     },
-  { value:'admin',   label:'Administrator',  icon:'🛡️',  desc:'Full hospital management access'     },
+const PATIENT_FEATURES = [
+  { icon:'📅', label:'Smart Appointments', desc:'Schedule visits with verified hospital specialists' },
+  { icon:'📁', label:'Medical Records',     desc:'View test results, diagnoses, and prescriptions' },
+  { icon:'⏱️', label:'Queue Visibility',   desc:'Track consultation queue and estimated wait time' },
 ]
 
 export default function Register() {
@@ -38,8 +38,8 @@ export default function Register() {
     if (form.password.length < 8) { toast.error('Password must be at least 8 characters'); return }
     setLoading(true)
     try {
-      await authApi.register(form)
-      toast.success('Account created! Please sign in.')
+      await authApi.register({ ...form, role: 'patient' })
+      toast.success('Patient account created! Please sign in.')
       navigate('/login')
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Registration failed')
@@ -67,33 +67,25 @@ export default function Register() {
             <span style={S.grad}>of healthcare.</span>
           </h1>
           <p style={S.leftSub}>
-            Whether you're a patient, doctor, or administrator —
-            MEDiFLOW gives you the tools to manage healthcare smarter.
+            Create your patient portal account to manage appointments,
+            access digital medical records, and connect with physicians.
           </p>
 
-          {/* Interactive role selector on left */}
+          {/* Feature list on left */}
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {ROLES.map(r => (
-              <div key={r.value} onClick={()=>set('role',r.value)} style={{
+            {PATIENT_FEATURES.map(f => (
+              <div key={f.label} style={{
                 display:'flex', alignItems:'center', gap:12, padding:'11px 14px',
-                borderRadius:12, cursor:'pointer', transition:'all .2s',
-                background: form.role===r.value ? 'rgba(37,99,235,.22)' : 'rgba(255,255,255,.05)',
-                border: form.role===r.value ? '1px solid rgba(37,99,235,.5)' : '1px solid rgba(255,255,255,.08)',
+                borderRadius:12,
+                background: 'rgba(255,255,255,.05)',
+                border: '1px solid rgba(255,255,255,.08)',
               }}>
-                <span style={{fontSize:20}}>{r.icon}</span>
+                <span style={{fontSize:20}}>{f.icon}</span>
                 <div style={{flex:1}}>
-                  <div style={{fontSize:13,fontWeight:600,color:'#f1f5f9'}}>{r.label}</div>
-                  <div style={{fontSize:11.5,color:'#64748b',marginTop:1}}>{r.desc}</div>
+                  <div style={{fontSize:13,fontWeight:600,color:'#f1f5f9'}}>{f.label}</div>
+                  <div style={{fontSize:11.5,color:'#64748b',marginTop:1}}>{f.desc}</div>
                 </div>
-                <div style={{
-                  width:20, height:20, borderRadius:'50%', flexShrink:0,
-                  background: form.role===r.value ? '#2563eb' : 'rgba(255,255,255,.1)',
-                  display:'flex', alignItems:'center', justifyContent:'center',
-                  border: form.role===r.value ? 'none' : '1.5px solid rgba(255,255,255,.15)',
-                  transition:'all .2s',
-                }}>
-                  {form.role===r.value && <Check size={11} color="#fff"/>}
-                </div>
+                <Check size={14} color="#00C6A7"/>
               </div>
             ))}
           </div>
@@ -182,16 +174,11 @@ export default function Register() {
               </div>
             </div>
 
-            {/* Role dropdown */}
-            <div style={{marginBottom:22}}>
-              <label style={S.label}>Role</label>
-              <div style={{position:'relative'}}>
-                <select value={form.role} onChange={e=>set('role',e.target.value)}
-                  style={{...S.inp, paddingLeft:14, paddingRight:36, appearance:'none', cursor:'pointer', boxSizing:'border-box'}}
-                  onFocus={focusOn} onBlur={focusOff}>
-                  {ROLES.map(r=><option key={r.value} value={r.value}>{r.icon} {r.label}</option>)}
-                </select>
-                <ChevronDown size={14} color="#94a3b8" style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',pointerEvents:'none'}}/>
+            {/* Patient notice */}
+            <div style={{ marginBottom: 20, padding: '10px 14px', borderRadius: 10, background: '#f0fdfa', border: '1px solid #ccfbf1', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 18 }}>🧑‍⚕️</span>
+              <div style={{ fontSize: 12, color: '#0f766e', lineHeight: 1.4 }}>
+                <strong>Patient Registration:</strong> Self-registration creates a patient account. Doctor and staff credentials are administrator-provisioned.
               </div>
             </div>
 

@@ -1,7 +1,7 @@
 from datetime import date, timedelta
-from typing import List
+from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, case
 from app.models.models import Appointment, Doctor, Patient, User, AppointmentStatus
 from app.schemas.schemas import AnalyticsSummary, DoctorWorkload
 from app.db.cache import cache
@@ -66,13 +66,16 @@ class AnalyticsService:
         return summary
 
     @staticmethod
-    async def get_doctor_workloads(db: AsyncSession, hospital_id: int) -> List[DoctorWorkload]:
-        cache_key = f"analytics:workload:{hospital_id}"
+    async def get_doctor_workloads(db: AsyncSession, hospital_id: int, month: Optional[date] = None) -> List[DoctorWorkload]:
+        cache_key = f"analytics:workload:{hospital_id}:{month or 'current'}"
         cached = await cache.get(cache_key)
         if cached:
             return [DoctorWorkload(**d) for d in cached]
 
-        month_start = date.today().replace(day=1)
+        if month:
+            month_start = month.replace(day=1)
+        else:
+            month_start = date.today().replace(day=1)
         result = await db.execute(
             select(
                 Doctor.id,
@@ -81,9 +84,9 @@ class AnalyticsService:
                 Doctor.specialty,
                 Doctor.rating,
                 func.count(Appointment.id).label("total"),
-                func.sum(func.cast(Appointment.status == AppointmentStatus.completed, Integer=True)).label("completed"),
-                func.sum(func.cast(Appointment.status == AppointmentStatus.pending, Integer=True)).label("pending"),
-                func.sum(func.cast(Appointment.status == AppointmentStatus.cancelled, Integer=True)).label("cancelled"),
+                func.sum(case((Appointment.status == AppointmentStatus.completed, 1), else_=0)).label("completed"),
+                func.sum(case((Appointment.status == AppointmentStatus.pending, 1), else_=0)).label("pending"),
+                func.sum(case((Appointment.status == AppointmentStatus.cancelled, 1), else_=0)).label("cancelled"),
             )
             .join(User, Doctor.user_id == User.id)
             .outerjoin(Appointment, and_(
@@ -98,7 +101,7 @@ class AnalyticsService:
             DoctorWorkload(
                 doctor_id=row[0],
                 doctor_name=f"Dr. {row[1]} {row[2]}",
-                specialty=row[3].value if row[3] else "",
+                specialty=row[3].value if hasattr(row[3], 'value') else (str(row[3]) if row[3] else ""),
                 avg_rating=float(row[4] or 0),
                 total_appointments=int(row[5] or 0),
                 completed=int(row[6] or 0),
@@ -130,3 +133,7 @@ class AnalyticsService:
         trends = [{"date": str(row[0]), "count": row[1]} for row in result.fetchall()]
         await cache.set(cache_key, trends, ttl=600)
         return trends
+
+    # Alias for endpoints expecting get_appointment_trends
+    get_appointment_trends = get_trends
+

@@ -139,30 +139,33 @@ class AppointmentService:
         priority: Optional[AppointmentPriority] = None,
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
+        **kwargs,
     ) -> Tuple[List[Appointment], int]:
-        query = (
-            select(Appointment)
-            .options(
-                selectinload(Appointment.patient).selectinload(Patient.user),
-                selectinload(Appointment.doctor).selectinload(Doctor.user),
-            )
-            .where(Appointment.hospital_id == hospital_id)
-        )
+        if "params" in kwargs and kwargs["params"] is not None:
+            params = kwargs["params"]
+            page = getattr(params, "page", page)
+            page_size = getattr(params, "page_size", page_size)
+
+        base_filter = [Appointment.hospital_id == hospital_id]
         if doctor_id:
-            query = query.where(Appointment.doctor_id == doctor_id)
+            base_filter.append(Appointment.doctor_id == doctor_id)
         if patient_id:
-            query = query.where(Appointment.patient_id == patient_id)
+            base_filter.append(Appointment.patient_id == patient_id)
         if status:
-            query = query.where(Appointment.status == status)
+            base_filter.append(Appointment.status == status)
         if priority:
-            query = query.where(Appointment.priority == priority)
+            base_filter.append(Appointment.priority == priority)
         if date_from:
-            query = query.where(Appointment.appointment_date >= date_from)
+            base_filter.append(Appointment.appointment_date >= date_from)
         if date_to:
-            query = query.where(Appointment.appointment_date <= date_to)
+            base_filter.append(Appointment.appointment_date <= date_to)
         if search:
             s = f"%{search}%"
-            query = query.where(or_(Appointment.reason.ilike(s), Appointment.symptoms.ilike(s)))
+            base_filter.append(or_(Appointment.reason.ilike(s), Appointment.symptoms.ilike(s)))
+
+        total = (await db.execute(
+            select(func.count()).select_from(Appointment).where(and_(*base_filter))
+        )).scalar_one()
 
         priority_order = case(
             {AppointmentPriority.emergency.value: 0,
@@ -170,15 +173,18 @@ class AppointmentService:
              AppointmentPriority.routine.value: 2},
             value=Appointment.priority,
         )
-        query = query.order_by(priority_order, Appointment.appointment_date, Appointment.time_slot)
 
-        total = (await db.execute(
-            select(func.count()).select_from(
-                select(Appointment).where(Appointment.hospital_id == hospital_id).subquery()
+        query = (
+            select(Appointment)
+            .options(
+                selectinload(Appointment.patient).selectinload(Patient.user),
+                selectinload(Appointment.doctor).selectinload(Doctor.user),
             )
-        )).scalar_one()
-
-        query = query.offset((page - 1) * page_size).limit(page_size)
+            .where(and_(*base_filter))
+            .order_by(priority_order, Appointment.appointment_date, Appointment.time_slot)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
         result = await db.execute(query)
         return result.scalars().all(), total
 

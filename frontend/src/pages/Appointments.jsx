@@ -1,15 +1,15 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { appointmentApi, doctorApi } from '../services/api'
+import { appointmentApi, doctorApi, patientApi } from '../services/api'
 import useAuthStore from '../store/authStore'
 import toast from 'react-hot-toast'
 
 const STATUS_BADGE = { pending:'badge-yellow', confirmed:'badge-blue', completed:'badge-green', cancelled:'badge-red', no_show:'badge-gray' }
 const PRIORITY_BADGE = { emergency:'badge-red', urgent:'badge-yellow', routine:'badge-gray' }
 
-function BookModal({ onClose, doctors }) {
+function BookModal({ onClose, doctors, patients, isStaff }) {
   const qc = useQueryClient()
-  const [form, setForm] = useState({ doctor_id:'', appointment_date:'', time_slot:'', reason:'', symptoms:'', priority:'routine' })
+  const [form, setForm] = useState({ patient_id:'', doctor_id:'', appointment_date:'', time_slot:'', reason:'', symptoms:'', priority:'routine' })
   const [slots, setSlots] = useState([])
   const [loadingSlots, setLoadingSlots] = useState(false)
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -29,7 +29,18 @@ function BookModal({ onClose, doctors }) {
     onError: err => toast.error(err.response?.data?.detail || 'Booking failed'),
   })
 
-  const submit = (e) => { e.preventDefault(); mutation.mutate({ ...form, doctor_id: +form.doctor_id }) }
+  const submit = (e) => {
+    e.preventDefault()
+    if (isStaff && !form.patient_id) {
+      toast.error('Please select a patient')
+      return
+    }
+    mutation.mutate({
+      ...form,
+      doctor_id: +form.doctor_id,
+      patient_id: form.patient_id ? +form.patient_id : undefined,
+    })
+  }
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -40,6 +51,20 @@ function BookModal({ onClose, doctors }) {
         </div>
         <form onSubmit={submit}>
           <div className="modal-body">
+            {isStaff && (
+              <div className="form-group">
+                <label className="form-label">Patient *</label>
+                <select className="form-control" value={form.patient_id} required
+                  onChange={e => set('patient_id', e.target.value)}>
+                  <option value="">Select patient...</option>
+                  {(patients || []).map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.user?.first_name} {p.user?.last_name} ({p.user?.email || `Patient #${p.id}`})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="form-group">
               <label className="form-label">Doctor *</label>
               <select className="form-control" value={form.doctor_id} required
@@ -186,12 +211,19 @@ export default function Appointments() {
     { keepPreviousData: true }
   )
 
+  const isStaff = ['admin', 'super_admin', 'doctor'].includes(user?.role)
+
   const { data: doctors } = useQuery('doctors-all',
     () => doctorApi.list({ page_size: 100, available_only: true }).then(r => r.data.items),
     { enabled: user?.role !== 'doctor' }
   )
 
-  const canEdit = ['admin', 'super_admin', 'doctor'].includes(user?.role)
+  const { data: patients } = useQuery('patients-all',
+    () => patientApi.list({ page_size: 100 }).then(r => r.data.items),
+    { enabled: isStaff }
+  )
+
+  const canEdit = isStaff
 
   return (
     <div>
@@ -271,7 +303,7 @@ export default function Appointments() {
         )}
       </div>
 
-      {showBook && <BookModal onClose={() => setShowBook(false)} doctors={doctors} />}
+      {showBook && <BookModal onClose={() => setShowBook(false)} doctors={doctors} patients={patients} isStaff={isStaff} />}
       {editAppt && <UpdateModal appt={editAppt} onClose={() => setEditAppt(null)} />}
     </div>
   )

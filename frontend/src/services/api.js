@@ -14,7 +14,12 @@ api.interceptors.response.use(
   (res) => res,
   async (err) => {
     const original = err.config
-    if (err.response?.status === 401 && !original._retry) {
+    const url = original?.url || ''
+    const isAuthEndpoint = url.includes('/auth/login') ||
+                           url.includes('/auth/register') ||
+                           url.includes('/auth/refresh')
+
+    if (err.response?.status === 401 && !original?._retry && !isAuthEndpoint) {
       original._retry = true
       try {
         const refresh = localStorage.getItem('refresh_token')
@@ -25,7 +30,8 @@ api.interceptors.response.use(
         original.headers.Authorization = `Bearer ${data.access_token}`
         return api(original)
       } catch {
-        localStorage.clear()
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
         window.location.href = '/login'
       }
     }
@@ -34,9 +40,17 @@ api.interceptors.response.use(
 )
 
 export const authApi = {
-  register: (data) => api.post('/auth/register', data),
+  register: (data) => api.post('/auth/register', {
+    ...data,
+    email: (data.email || '').trim().toLowerCase(),
+    hospital_slug: (data.hospital_slug || 'default').trim(),
+  }),
   login: (email, password, hospitalSlug = 'default') =>
-    api.post('/auth/login', { email, password, hospital_slug: hospitalSlug }),
+    api.post('/auth/login', {
+      email: (email || '').trim().toLowerCase(),
+      password,
+      hospital_slug: (hospitalSlug || 'default').trim(),
+    }),
   me: () => api.get('/auth/me'),
   updateMe: (data) => api.patch('/auth/me', data),
   logout: () => api.post('/auth/logout'),
@@ -67,7 +81,7 @@ export const appointmentApi = {
 }
 
 export const recordApi = {
-  list: (patientId, params) => api.get(`/records/patients/${patientId}`, { params }),
+  list: (patientId, params) => (patientId && patientId !== 'null') ? api.get(`/records/patients/${patientId}`, { params }) : api.get('/records', { params }),
   upload: (patientId, file, meta = {}) => {
     const form = new FormData()
     form.append('file', file)

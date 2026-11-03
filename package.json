@@ -1,0 +1,25 @@
+{
+  "name": "mediflow-hms",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "python3 run_dev.py",
+    "build": "vite build frontend"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.27.0",
+    "axios": "^1.7.7",
+    "zustand": "^5.0.0",
+    "react-query": "^3.39.3",
+    "recharts": "^2.13.0",
+    "react-hot-toast": "^2.4.1",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.454.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "vite": "^5.4.10"
+  }
+}

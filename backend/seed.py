@@ -19,12 +19,12 @@ from app.models.models import (
 )
 
 
+from app.db.session import init_db, AsyncSessionLocal
+
 async def seed():
     print("\n🌱 Seeding MediCore HMS...\n")
-    engine = create_async_engine(settings.DATABASE_URL, echo=False)
-    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    async with Session() as db:
+    await init_db()
+    async with AsyncSessionLocal() as db:
         # Hospital
         h = (await db.execute(select(Hospital).where(Hospital.slug == "default"))).scalar_one_or_none()
         if not h:
@@ -96,6 +96,7 @@ async def seed():
 
     print("\n🎉 Seed complete! Login at http://localhost:3000")
     print("   Hospital slug: default")
+    from app.db.session import engine
     await engine.dispose()
 
 

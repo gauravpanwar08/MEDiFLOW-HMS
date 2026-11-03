@@ -15,26 +15,42 @@ class UserService:
 
     @staticmethod
     async def get_by_email(db: AsyncSession, email: str, hospital_id: int) -> Optional[User]:
+        clean_email = email.strip().lower()
         result = await db.execute(
-            select(User).where(and_(User.email == email, User.hospital_id == hospital_id))
+            select(User).where(and_(func.lower(User.email) == clean_email, User.hospital_id == hospital_id))
         )
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def create(db: AsyncSession, data: UserCreate, hospital: Hospital) -> User:
+    async def create(db: AsyncSession, data: UserCreate, hospital: Hospital, role: Optional[UserRole] = None) -> User:
+        from app.models.models import Patient
+        assigned_role = role or data.role
+        clean_email = data.email.strip().lower()
         user = User(
-            email=data.email,
+            email=clean_email,
             hashed_password=get_password_hash(data.password),
-            first_name=data.first_name,
-            last_name=data.last_name,
-            role=data.role,
-            phone=data.phone,
+            first_name=data.first_name.strip(),
+            last_name=data.last_name.strip(),
+            role=assigned_role,
+            phone=data.phone.strip() if data.phone else None,
             hospital_id=hospital.id,
             is_verified=True,
         )
         db.add(user)
         await db.flush()
         await db.refresh(user)
+
+        if assigned_role == UserRole.patient:
+            pat_result = await db.execute(select(Patient).where(Patient.user_id == user.id))
+            if not pat_result.scalar_one_or_none():
+                patient = Patient(
+                    hospital_id=hospital.id,
+                    user_id=user.id,
+                    emergency_contact_phone=user.phone,
+                )
+                db.add(patient)
+                await db.flush()
+
         return user
 
     @staticmethod

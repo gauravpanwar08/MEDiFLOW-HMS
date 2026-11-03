@@ -64,8 +64,8 @@ class UserCreate(BaseModel):
     @field_validator("password")
     @classmethod
     def password_min_length(cls, v):
-        if len(v) < 6:
-            raise ValueError("Password must be at least 6 characters")
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
         return v
 
 
@@ -190,6 +190,7 @@ class AppointmentCreate(BaseModel):
     doctor_id: int
     appointment_date: date
     time_slot: str
+    patient_id: Optional[int] = None
     reason: Optional[str] = None
     symptoms: Optional[str] = None
     priority: AppointmentPriority = AppointmentPriority.routine
